@@ -92,6 +92,9 @@ textarea{width:100%;min-height:76px;border:1px solid var(--line);background:var(
 label.chk{display:flex;gap:8px;align-items:center;font-size:14px}
 label.chk input{width:18px;height:18px;accent-color:var(--accent)}
 .two{display:grid;grid-template-columns:1fr 2fr;gap:10px}
+.method{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px}
+.method b{font-family:var(--f-num);font-size:17px}
+.aiwarn{color:var(--warn)}
 
 /* history */
 .filters{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
@@ -185,6 +188,9 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;font-weight:500;min-width:0;overf
         <button class="btn" id="btnImport">นำเข้าจากไฟล์ Excel (Stock Balance)</button>
         <p class="hint" style="margin:10px 0 0">ใช้คอลัมน์ item_code, item_name, baseUOM, Bins.name นำเข้าซ้ำได้เมื่อรายการเปลี่ยน รูปและสีเม็ดยาที่แอปจำไว้จะไม่หาย</p>
       </div>
+      <div class="card"><h2>AI นับซ้ำ</h2>
+        <label class="chk"><input type="checkbox" id="aiOn"> ให้ AI นับซ้ำทุกครั้งที่หยุดภาพ</label>
+        <p class="hint" style="margin:8px 0 0">AI ช่วยกรณีที่วิธีสีทำได้ไม่ดี เช่น ยาในถุงสีชา ครั้งแรกต้องต่ออินเทอร์เน็ตเพื่อโหลดโมเดล (ประมาณ 11 MB) หลังจากนั้นใช้ออฟไลน์ได้</p></div>
       <div class="card">
         <h2>นับให้แม่น</h2>
         <ol class="tips">
@@ -210,6 +216,8 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;font-weight:500;min-width:0;overf
     <div class="revwrap"><canvas id="revCanvas"></canvas></div>
     <div class="pad">
       <div class="countline"><div class="when" id="revWhen"></div><div><div class="big" id="revCount">0</div><div class="auto" id="revAuto"></div></div></div>
+      <div class="method" id="methodBox"><button class="btn on" id="mColor" data-m="color">สี <b id="nColor">–</b></button><button class="btn" id="mAi" data-m="ai">AI <b id="nAi">…</b></button></div>
+      <p class="hint" id="aiNote" style="margin:6px 0 10px"></p>
       <div class="slider"><span>แยกเม็ดน้อย</span><input id="revSens" type="range" min="0" max="1" step="0.05" value="0.5" aria-label="ความไว"><span>มาก</span></div>
       <p class="hint" style="margin:4px 0 0">จุดสีส้มคือเม็ดที่ติดกัน แอปมักนับเพี้ยนตรงนี้ ±1 เกลี่ยให้เม็ดแยกกันจะแม่นที่สุด · เลื่อนแถบแล้วแอปจะนับใหม่ จุดที่แก้มือจะหายไป</p>
       <div id="revDrug"></div>
@@ -240,6 +248,7 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;font-weight:500;min-width:0;overf
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script src="counter.js"></script>
+<script src="ai.js"></script>
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
@@ -492,10 +501,11 @@ function openReview(source) {
   const src = document.createElement("canvas"); src.width = w; src.height = h;
   src.getContext("2d").drawImage(source, 0, 0, w, h);
   rev.src = src; rev.w = w; rev.h = h; rev.ts = Date.now(); rev.pillLab = pillLab; rev.sens = sens;
-  rev.canvas.width = w; rev.canvas.height = h;
+  rev.canvas.width = w; rev.canvas.height = h; rev.method = "color"; rev.ai = null; rev.color = null;
   $("#revSens").value = sens; $("#memo").value = "";
   $("#revWhen").textContent = `${fmtTime(rev.ts)}  ${LS.get("pc_user", "")}`;
   runReview();
+  runAI(rev.ts);
   renderRevDrug();
   stopCam();
   $("#review").classList.add("on"); $("#review").scrollTop = 0;
@@ -511,10 +521,65 @@ function runReview() {
     const dd = c.getContext("2d").getImageData(0, 0, c.width, c.height); data = dd.data; w = c.width; h = c.height;
   }
   const res = PillCounter.countPills(data, w, h, { pillLab: rev.pillLab, sens: rev.sens, roi: { x0: 0, y0: 0, x1: w, y1: h } });
-  rev.dots = res.dots.map(p => ({ x: p.x / k, y: p.y / k, chk: p.chk }));
-  rev.auto = res.count; rev.r = (res.r || 8) / k;
-  if (!rev.pillLab) rev.autoLab = res.pillLab;
+  rev.color = { dots: res.dots.map(p => ({ x: p.x / k, y: p.y / k, chk: p.chk })), auto: res.count, r: (res.r || 8) / k };
+  $("#nColor").textContent = res.count;
+  if (rev.method === "color" || !rev.ai) useMethod("color", true);
+  else drawReview();
+}
+function useMethod(m, quiet) {
+  const set = rev[m]; if (!set) return;
+  rev.method = m; rev.dots = set.dots.map(d => Object.assign({}, d)); rev.auto = set.auto; rev.r = set.r;
+  $("#mColor").classList.toggle("on", m === "color"); $("#mAi").classList.toggle("on", m === "ai");
   drawReview();
+}
+$("#methodBox").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (b) useMethod(b.dataset.m); });
+
+/* ---------- AI second opinion ---------- */
+const AI_SIZE = 640;
+let aiSession = null, aiLoading = null;
+function aiEnabled() { return LS.get("pc_ai", "1") === "1"; }
+function loadAI() {
+  if (aiLoading) return aiLoading;
+  aiLoading = (async () => {
+    if (!window.ort) await loadScript("https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js");
+    ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/";
+    ort.env.wasm.numThreads = 1;
+    aiSession = await ort.InferenceSession.create("model.onnx", { executionProviders: ["wasm"] });
+    return aiSession;
+  })().catch(e => { aiLoading = null; throw e; });
+  return aiLoading;
+}
+async function runAI(token) {
+  $("#nAi").textContent = "…"; $("#mAi").disabled = true;
+  if (!aiEnabled()) { $("#methodBox").hidden = true; $("#aiNote").textContent = ""; return; }
+  $("#methodBox").hidden = false; $("#aiNote").className = "hint"; $("#aiNote").textContent = "AI กำลังนับซ้ำ…";
+  try {
+    const sess = await loadAI();
+    const sc = AI_SIZE / Math.max(rev.w, rev.h);
+    const c = document.createElement("canvas"); c.width = c.height = AI_SIZE;
+    const x = c.getContext("2d"); x.fillStyle = "rgb(114,114,114)"; x.fillRect(0, 0, AI_SIZE, AI_SIZE);
+    x.drawImage(rev.src, 0, 0, Math.round(rev.w * sc), Math.round(rev.h * sc));
+    const px = x.getImageData(0, 0, AI_SIZE, AI_SIZE).data;
+    const t0 = performance.now();
+    const boxes = await PillAI.detect(async t => (await sess.run({ [sess.inputNames[0]]: new ort.Tensor("float32", t, [1, 3, AI_SIZE, AI_SIZE]) }))[sess.outputNames[0]].data, px, AI_SIZE, { conf: 0.25, flip: true });
+    if (token !== rev.ts) return;
+    const ws = boxes.map(b => (b.x1 - b.x0) / sc).sort((a, b) => a - b);
+    rev.ai = { dots: boxes.map(b => ({ x: (b.x0 + b.x1) / 2 / sc, y: (b.y0 + b.y1) / 2 / sc, chk: b.s < 0.45 })), auto: boxes.length, r: (ws[ws.length >> 1] || 16) / 2 };
+    $("#nAi").textContent = boxes.length; $("#mAi").disabled = false;
+    const cN = rev.color.auto, aN = rev.ai.auto, ms = Math.round(performance.now() - t0);
+    if (Math.abs(cN - aN) <= 1) {
+      $("#aiNote").textContent = `สีกับ AI นับใกล้กัน (${cN} / ${aN})`;
+    } else {
+      $("#aiNote").className = "hint aiwarn";
+      $("#aiNote").textContent = `สีนับได้ ${cN} แต่ AI นับได้ ${aN} ไม่ตรงกัน ควรตรวจภาพ`;
+      // colour method clearly lost the tablets (e.g. tinted bag): show AI first
+      if (cN < aN * 0.75 && rev.method === "color" && rev.dots.length === rev.auto) useMethod("ai");
+    }
+    console.log("AI ms", ms);
+  } catch (e) {
+    if (token !== rev.ts) return;
+    $("#aiNote").textContent = "AI ใช้ไม่ได้ตอนนี้ (ต้องต่ออินเทอร์เน็ตครั้งแรก)"; $("#nAi").textContent = "–";
+  }
 }
 function drawReview() {
   const c = rev.canvas.getContext("2d");
@@ -577,7 +642,8 @@ function refCrop() {
 $("#btnSave").onclick = async () => {
   const d = cur.drug;
   const rec = {
-    id: uid(), ts: rev.ts, count: rev.dots.length, auto: rev.auto,
+    id: uid(), ts: rev.ts, count: rev.dots.length, auto: rev.auto, method: rev.method,
+    colorCount: rev.color ? rev.color.auto : null, aiCount: rev.ai ? rev.ai.auto : null,
     code: d ? d.code : "", name: d ? d.name : "",
     memo: $("#memo").value.trim(), user: LS.get("pc_user", ""), thumb: thumb(rev.src, 520, true),
   };
@@ -638,7 +704,7 @@ $("#histList").addEventListener("click", async e => {
   detailRec = r; delArmed = false; $("#btnDel").textContent = "ลบ";
   $("#detailBody").innerHTML = `<img src="${r.thumb}" alt="ภาพที่นับ">
     <div class="countline"><div class="when">${fmtTime(r.ts)}  ${esc(r.user)}</div><div class="big">${r.count}</div></div>
-    <dl class="kv"><dt>ยา</dt><dd>${esc(r.name || "ไม่ระบุ")}</dd><dt>รหัส</dt><dd>${esc(r.code || "–")}</dd><dt>แอปนับได้</dt><dd>${r.auto}${r.count !== r.auto ? " (แก้เป็น " + r.count + ")" : ""}</dd><dt>Memo</dt><dd>${esc(r.memo || "–")}</dd></dl>`;
+    <dl class="kv"><dt>ยา</dt><dd>${esc(r.name || "ไม่ระบุ")}</dd><dt>รหัส</dt><dd>${esc(r.code || "–")}</dd><dt>แอปนับได้</dt><dd>${r.auto}${r.count !== r.auto ? " (แก้เป็น " + r.count + ")" : ""}</dd>${r.aiCount != null ? `<dt>สี / AI</dt><dd>${r.colorCount} / ${r.aiCount} · ใช้${r.method === "ai" ? " AI" : "สี"}</dd>` : ""}<dt>Memo</dt><dd>${esc(r.memo || "–")}</dd></dl>`;
   $("#detail").classList.add("on");
 });
 $("#btnDClose").onclick = () => $("#detail").classList.remove("on");
@@ -649,8 +715,8 @@ $("#btnDel").onclick = async () => {
 $("#btnCsv").onclick = async () => {
   const all = (await DB.all("records")).sort((a, b) => a.ts - b.ts);
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const rows = [["วันเวลา", "รหัสยา", "ชื่อยา", "จำนวน", "แอปนับได้", "Memo", "ผู้นับ"].map(q).join(",")];
-  for (const r of all) rows.push([fmtTime(r.ts), "\t" + (r.code || ""), r.name, r.count, r.auto, r.memo, r.user].map(q).join(","));
+  const rows = [["วันเวลา", "รหัสยา", "ชื่อยา", "จำนวน", "แอปนับได้", "วิธีสี", "AI", "Memo", "ผู้นับ"].map(q).join(",")];
+  for (const r of all) rows.push([fmtTime(r.ts), "\t" + (r.code || ""), r.name, r.count, r.auto, r.colorCount ?? "", r.aiCount ?? "", r.memo, r.user].map(q).join(","));
   download(`pillcount_${dayKey(Date.now())}.csv`, "﻿" + rows.join("\r\n"), "text/csv;charset=utf-8");
 };
 
@@ -658,11 +724,13 @@ $("#btnCsv").onclick = async () => {
 const userInp = $("#userName");
 userInp.value = LS.get("pc_user", "");
 userInp.addEventListener("input", () => LS.set("pc_user", userInp.value.trim()));
+$("#aiOn").checked = aiEnabled();
+$("#aiOn").addEventListener("change", e => { LS.set("pc_ai", e.target.checked ? "1" : "0"); if (e.target.checked) loadAI().catch(() => {}); });
 async function renderDrugInfo() {
   const t = LS.get("pc_import", "");
   $("#drugInfo").textContent = drugs.size ? `${drugs.size.toLocaleString()} รายการ${t ? " · นำเข้าล่าสุด " + fmtTime(+t) : ""}` : "ยังไม่มีรายการยา นำเข้าไฟล์ Stock Balance ก่อนใช้สแกน QR";
 }
-function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("โหลดตัวอ่าน Excel ไม่ได้ ตรวจอินเทอร์เน็ต")); document.head.appendChild(s); }); }
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("โหลดไม่สำเร็จ ตรวจอินเทอร์เน็ต")); document.head.appendChild(s); }); }
 $("#btnImport").onclick = () => $("#fileXlsx").click();
 $("#fileXlsx").addEventListener("change", async e => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
@@ -726,6 +794,7 @@ document.addEventListener("visibilitychange", () => {
   try { await loadDrugs(); } catch {}
   renderDrugBox();
   startCam();
+  if (aiEnabled()) setTimeout(() => loadAI().catch(() => {}), 2500);
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
 </script>
