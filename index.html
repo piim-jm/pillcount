@@ -561,7 +561,7 @@ async function runAI(token) {
     x.drawImage(rev.src, 0, 0, Math.round(rev.w * sc), Math.round(rev.h * sc));
     const px = x.getImageData(0, 0, AI_SIZE, AI_SIZE).data;
     const t0 = performance.now();
-    const boxes = await PillAI.detect(async t => (await sess.run({ [sess.inputNames[0]]: new ort.Tensor("float32", t, [1, 3, AI_SIZE, AI_SIZE]) }))[sess.outputNames[0]].data, px, AI_SIZE, { conf: 0.25, flip: true });
+    const boxes = await PillAI.detect(async t => (await sess.run({ [sess.inputNames[0]]: new ort.Tensor("float32", t, [1, 3, AI_SIZE, AI_SIZE]) }))[sess.outputNames[0]].data, px, AI_SIZE, { conf: 0.2, flip: false });
     if (token !== rev.ts) return;
     const ws = boxes.map(b => (b.x1 - b.x0) / sc).sort((a, b) => a - b);
     rev.ai = { dots: boxes.map(b => ({ x: (b.x0 + b.x1) / 2 / sc, y: (b.y0 + b.y1) / 2 / sc, chk: b.s < 0.45 })), auto: boxes.length, r: (ws[ws.length >> 1] || 16) / 2 };
