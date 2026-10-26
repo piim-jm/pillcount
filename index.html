@@ -201,6 +201,11 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;font-weight:500;min-width:0;overf
           <li>ตรวจภาพก่อนบันทึกทุกครั้ง แตะเพื่อเพิ่มหรือลบจุด</li>
         </ol>
       </div>
+      <div class="card"><h2>รูปสำหรับเทรน AI</h2>
+        <label class="chk"><input type="checkbox" id="trainOn"> เก็บรูปทุกครั้งที่กดบันทึก</label>
+        <p class="hint" style="margin:8px 0 10px" id="trainInfo">ยังไม่มีรูป</p>
+        <div class="seg"><button class="btn" id="btnTrainExport">ส่งออกรูปเทรน (.zip)</button><button class="btn" id="btnTrainClear" style="color:var(--danger)">ล้างรูปเทรน</button></div>
+        <p class="hint" style="margin:10px 0 0">แอปเก็บรูปพร้อมตำแหน่งจุดที่พิมแก้แล้ว จุดคือเฉลยที่ AI ใช้เรียน จึงต้องแก้จุดให้ตรงทุกเม็ดก่อนบันทึก ไม่ให้สติกเกอร์ชื่อผู้ป่วยติดอยู่ในภาพ ได้สัก 50 รูปขึ้นไปแล้วส่งไฟล์ zip มาในแชต Claude</p></div>
       <div class="card"><h2>สำรองข้อมูล</h2>
         <div class="seg"><button class="btn" id="btnBackup">ส่งออกไฟล์สำรอง</button><button class="btn" id="btnRestore">นำเข้าไฟล์สำรอง</button></div>
         <p class="hint" style="margin:10px 0 0">ถ้าล้างข้อมูลเบราว์เซอร์หรือเปลี่ยนเครื่อง ข้อมูลจะหาย ควรสำรองเป็นระยะ</p></div>
@@ -260,13 +265,16 @@ const DB = (() => {
   function open() {
     if (dbp) return dbp;
     dbp = new Promise((res, rej) => {
-      const r = indexedDB.open("pillcount", 1);
-      r.onupgradeneeded = () => {
+      const r = indexedDB.open("pillcount", 2);
+      r.onupgradeneeded = e => {
         const d = r.result;
-        d.createObjectStore("drugs", { keyPath: "code" });
-        const rs = d.createObjectStore("records", { keyPath: "id" });
-        rs.createIndex("ts", "ts");
-        d.createObjectStore("meta");
+        if (e.oldVersion < 1) {
+          d.createObjectStore("drugs", { keyPath: "code" });
+          const rs = d.createObjectStore("records", { keyPath: "id" });
+          rs.createIndex("ts", "ts");
+          d.createObjectStore("meta");
+        }
+        if (e.oldVersion < 2) d.createObjectStore("train", { keyPath: "id" });
       };
       r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
     });
@@ -287,6 +295,7 @@ const DB = (() => {
     del: (st, k) => tx(st, "readwrite", s => s.delete(k)),
     all: st => tx(st, "readonly", s => s.getAll()),
     count: st => tx(st, "readonly", s => s.count()),
+    clear: st => tx(st, "readwrite", s => s.clear()),
     putMany: async (st, arr) => { const d = await open(); return new Promise((res, rej) => { const t = d.transaction(st, "readwrite"), s = t.objectStore(st); arr.forEach(v => s.put(v)); t.oncomplete = res; t.onerror = () => rej(t.error); }); },
   };
 })();
@@ -501,7 +510,7 @@ function openReview(source) {
   const src = document.createElement("canvas"); src.width = w; src.height = h;
   src.getContext("2d").drawImage(source, 0, 0, w, h);
   rev.src = src; rev.w = w; rev.h = h; rev.ts = Date.now(); rev.pillLab = pillLab; rev.sens = sens;
-  rev.canvas.width = w; rev.canvas.height = h; rev.method = "color"; rev.ai = null; rev.color = null;
+  rev.canvas.width = w; rev.canvas.height = h; rev.method = "color"; rev.ai = null; rev.color = null; rev.aiBoxes = null;
   $("#revSens").value = sens; $("#memo").value = "";
   $("#revWhen").textContent = `${fmtTime(rev.ts)}  ${LS.get("pc_user", "")}`;
   runReview();
@@ -564,6 +573,7 @@ async function runAI(token) {
     const boxes = await PillAI.detect(async t => (await sess.run({ [sess.inputNames[0]]: new ort.Tensor("float32", t, [1, 3, AI_SIZE, AI_SIZE]) }))[sess.outputNames[0]].data, px, AI_SIZE, { conf: 0.2, flip: false });
     if (token !== rev.ts) return;
     const ws = boxes.map(b => (b.x1 - b.x0) / sc).sort((a, b) => a - b);
+    rev.aiBoxes = boxes.map(b => [b.x0 / sc, b.y0 / sc, b.x1 / sc, b.y1 / sc, +b.s.toFixed(3)]);
     rev.ai = { dots: boxes.map(b => ({ x: (b.x0 + b.x1) / 2 / sc, y: (b.y0 + b.y1) / 2 / sc, chk: b.s < 0.45 })), auto: boxes.length, r: (ws[ws.length >> 1] || 16) / 2 };
     $("#nAi").textContent = boxes.length; $("#mAi").disabled = false;
     const cN = rev.color.auto, aN = rev.ai.auto, ms = Math.round(performance.now() - t0);
@@ -649,6 +659,15 @@ $("#btnSave").onclick = async () => {
   };
   try {
     await DB.put("records", rec);
+    if (trainOn() && rec.count > 0) {
+      await DB.put("train", {
+        id: rec.id, ts: rec.ts, code: rec.code, name: rec.name, w: rev.w, h: rev.h,
+        img: rev.src.toDataURL("image/jpeg", 0.9),
+        dots: rev.dots.map(d => [Math.round(d.x), Math.round(d.y)]),
+        r: Math.round(rev.r), ai: rev.aiBoxes, colorCount: rec.colorCount, aiCount: rec.aiCount,
+      });
+      renderTrainInfo();
+    }
     if (d) {
       const upd = Object.assign({}, d);
       if ($("#setRef").checked) upd.ref = refCrop();
@@ -758,6 +777,39 @@ $("#fileXlsx").addEventListener("change", async e => {
     toast(`นำเข้า ${out.size.toLocaleString()} รายการยาแล้ว`);
   } catch (err) { toast(err.message || "นำเข้าไม่สำเร็จ"); }
 });
+/* ---------- training data ---------- */
+function trainOn() { return LS.get("pc_train", "1") === "1"; }
+$("#trainOn").checked = trainOn();
+$("#trainOn").addEventListener("change", e => LS.set("pc_train", e.target.checked ? "1" : "0"));
+async function renderTrainInfo() {
+  try {
+    const n = await DB.count("train");
+    $("#trainInfo").textContent = n ? `เก็บไว้ ${n} รูป${n < 50 ? ` · อีก ${50 - n} รูปถึงเป้าแรก` : " · พร้อมส่งเทรนแล้ว"}` : "ยังไม่มีรูป นับยาแล้วกดบันทึก รูปจะมาอยู่ที่นี่";
+  } catch {}
+}
+$("#btnTrainExport").onclick = async () => {
+  const all = (await DB.all("train")).sort((a, b) => a.ts - b.ts);
+  if (!all.length) { toast("ยังไม่มีรูปเทรน"); return; }
+  try {
+    toast("กำลังรวมไฟล์…");
+    if (!window.JSZip) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js");
+    const zip = new JSZip(), labels = [];
+    for (const t of all) {
+      const f = `img_${dayKey(t.ts)}_${t.id}.jpg`;
+      zip.file("images/" + f, t.img.split(",")[1], { base64: true });
+      const { img, ...meta } = t; meta.file = f; labels.push(meta);
+    }
+    zip.file("labels.json", JSON.stringify({ app: "pillcount", v: 1, at: Date.now(), items: labels }));
+    const blob = await zip.generateAsync({ type: "blob" });
+    download(`pillcount_train_${dayKey(Date.now())}_${all.length}.zip`, blob, "application/zip");
+  } catch (e) { toast(e.message || "ส่งออกไม่สำเร็จ"); }
+};
+let trainClearArmed = false;
+$("#btnTrainClear").onclick = async () => {
+  if (!trainClearArmed) { trainClearArmed = true; $("#btnTrainClear").textContent = "แตะอีกครั้งเพื่อล้าง"; setTimeout(() => { trainClearArmed = false; $("#btnTrainClear").textContent = "ล้างรูปเทรน"; }, 4000); return; }
+  await DB.clear("train"); trainClearArmed = false; $("#btnTrainClear").textContent = "ล้างรูปเทรน"; renderTrainInfo(); toast("ล้างรูปเทรนแล้ว");
+};
+
 $("#btnBackup").onclick = async () => {
   const data = { app: "pillcount", v: 1, at: Date.now(), drugs: await DB.all("drugs"), records: await DB.all("records") };
   download(`pillcount_backup_${dayKey(Date.now())}.json`, JSON.stringify(data), "application/json");
@@ -781,6 +833,7 @@ function show(v) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.v === v));
   if (v === "live") startCam(); else stopCam();
   if (v === "hist") renderHist();
+  if (v === "set") renderTrainInfo();
   window.scrollTo(0, 0);
 }
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => show(t.dataset.v));
