@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f8f5b">
+<title>นับเม็ดยา</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: one-column phone app — camera stage on top, drug card + controls below, bottom tab bar */
+:root{
+  --bg:#f4f6f5; --surface:#ffffff; --line:#dfe5e2; --ink:#14201b; --muted:#5f6f68;
+  --accent:#0f8f5b; --accent-ink:#ffffff; --accent-soft:#e1f3ea;
+  --dot:#19e07f; --warn:#b4540a; --warn-soft:#fbeedd; --danger:#c0362c;
+  --stage:#0b1210;
+  --f-body:"IBM Plex Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-num:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --r:14px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0e1412; --surface:#17201c; --line:#26332d; --ink:#e7efeb; --muted:#93a59c;
+  --accent:#2fbf80; --accent-ink:#06130d; --accent-soft:#163428; --warn:#f0a35c; --warn-soft:#3a2a17; --danger:#ff6b5e;
+  color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body);-webkit-tap-highlight-color:transparent}
+button,input,textarea{font:inherit;color:inherit}
+.app{max-width:560px;margin:0 auto;min-height:100%;padding:env(safe-area-inset-top,0px) 0 calc(72px + env(safe-area-inset-bottom,0px))}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px max(16px,env(safe-area-inset-left,0px)) 10px max(16px,env(safe-area-inset-right,0px))}
+.top h1{margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em}
+.top .sub{color:var(--muted);font-size:13px}
+.view{display:none}.view.on{display:block}
+.pad{padding:0 max(16px,env(safe-area-inset-right,0px)) 0 max(16px,env(safe-area-inset-left,0px))}
+
+/* camera stage */
+.stage{position:relative;background:var(--stage);overflow:hidden;aspect-ratio:3/4;margin:0 auto;width:100%}
+.stage video,.stage canvas.ov{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.stage .msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#cfe3d9;text-align:center;padding:24px}
+.badge{position:absolute;right:12px;bottom:12px;background:rgba(8,14,12,.78);color:#fff;border-radius:16px;padding:6px 14px 4px;text-align:right;backdrop-filter:blur(6px)}
+.badge .n{font:600 44px/1 var(--f-num);color:var(--dot);font-variant-numeric:tabular-nums}
+.badge .s{font-size:12px;color:#b7cbc2}
+.chip-live{position:absolute;left:12px;top:12px;display:flex;gap:6px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;background:rgba(8,14,12,.72);color:#e8f4ee;font-size:12.5px;border-radius:99px;padding:4px 10px}
+.chip i{width:8px;height:8px;border-radius:50%;background:#f0b44c;display:inline-block}
+.chip.ok i{background:var(--dot)}
+.tapnote{position:absolute;left:0;right:0;top:44%;text-align:center;color:#fff;font-weight:600;text-shadow:0 1px 6px #000;pointer-events:none}
+
+/* cards */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.drug{display:flex;gap:12px;align-items:center;margin-top:12px}
+.drug .ref{width:56px;height:56px;border-radius:12px;background:var(--accent-soft);flex:none;object-fit:cover;display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:11px;text-align:center;line-height:1.2}
+.drug .nm{font-weight:600;line-height:1.3}
+.drug .meta{color:var(--muted);font-size:12.5px;font-family:var(--f-num)}
+.drug .x{margin-left:auto;border:0;background:none;color:var(--muted);font-size:22px;padding:4px 8px;cursor:pointer}
+.search{position:relative;margin-top:10px}
+.search input{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 12px}
+.search input:focus,textarea:focus,input:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+.results{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--line);border-radius:12px;max-height:260px;overflow:auto;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.results button{display:block;width:100%;text-align:left;border:0;background:none;padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.results button small{display:block;color:var(--muted);font-family:var(--f-num);font-size:11.5px}
+.row{display:flex;gap:10px;align-items:center}
+.ctrls{display:grid;gap:12px;margin-top:12px}
+.seg{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px 14px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.btn:focus-visible,.primary:focus-visible,.tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.primary{width:100%;border:0;background:var(--accent);color:var(--accent-ink);border-radius:14px;padding:15px;font-size:17px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px}
+.primary:disabled{opacity:.5}
+.slider{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;font-size:13px;color:var(--muted)}
+.slider input{width:100%;accent-color:var(--accent)}
+.hint{font-size:12.5px;color:var(--muted)}
+.warn{background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:10px 12px;font-size:13.5px}
+
+/* review sheet */
+.sheet{position:fixed;inset:0;z-index:50;background:var(--bg);overflow:auto;display:none;padding:env(safe-area-inset-top,0px) 0 calc(24px + env(safe-area-inset-bottom,0px))}
+.sheet.on{display:block}
+.sheet .inner{max-width:560px;margin:0 auto}
+.revwrap{position:relative;background:var(--stage)}
+.revwrap canvas{display:block;width:100%;height:auto;touch-action:manipulation}
+.countline{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:14px 0 6px}
+.countline .when{color:var(--muted);font-size:14px;font-family:var(--f-num)}
+.countline .big{font:600 52px/1 var(--f-num);color:var(--accent);font-variant-numeric:tabular-nums}
+.countline .auto{font-size:12px;color:var(--muted);text-align:right}
+textarea{width:100%;min-height:76px;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 12px;resize:vertical}
+label.chk{display:flex;gap:8px;align-items:center;font-size:14px}
+label.chk input{width:18px;height:18px;accent-color:var(--accent)}
+.two{display:grid;grid-template-columns:1fr 2fr;gap:10px}
+
+/* history */
+.filters{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.day{margin:18px 0 8px;font-size:13px;color:var(--muted);font-weight:600;display:flex;justify-content:space-between}
+.rec{display:grid;grid-template-columns:56px 1fr auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer;background:none;border-left:0;border-right:0;border-top:0;width:100%;text-align:left}
+.rec img{width:56px;height:56px;border-radius:10px;object-fit:cover;background:var(--stage)}
+.rec .nm{font-weight:600;line-height:1.3;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rec .mm{font-size:12.5px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rec .ct{font:600 24px/1 var(--f-num);color:var(--accent);text-align:right}
+.rec .ct small{display:block;font:400 11.5px var(--f-body);color:var(--muted)}
+.empty{text-align:center;color:var(--muted);padding:40px 16px}
+.detail img{width:100%;border-radius:12px;background:var(--stage)}
+dl.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:12px 0}
+dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;font-weight:500;min-width:0;overflow-wrap:anywhere}
+
+/* settings */
+.set{display:grid;gap:14px}
+.set h2{font-size:15px;margin:0 0 6px}
+.set input[type=text]{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 12px}
+.tips{margin:0;padding-left:20px;display:grid;gap:4px;font-size:14px}
+
+/* tab bar */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:center;padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
+.tabs .in{display:flex;width:100%;max-width:560px}
+.tab{flex:1;border:0;background:none;padding:6px 4px;border-radius:10px;color:var(--muted);font-size:12px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}
+.tab svg{width:24px;height:24px}
+.tab.on{color:var(--accent);font-weight:600}
+.toast{position:fixed;left:50%;bottom:calc(86px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:500;z-index:80;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
+.toast.on{opacity:1}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- LIVE -->
+  <section class="view on" id="v-live">
+    <div class="top"><div><h1>นับเม็ดยา</h1><div class="sub" id="liveSub">ส่องกล้องที่เม็ดยา ตัวเลขจะขึ้นสดๆ</div></div>
+      <button class="btn" id="btnPhoto" aria-label="เลือกรูปจากเครื่อง">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 17l-5-5-8 7"/></svg>รูป</button>
+    </div>
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas class="ov" id="overlay"></canvas>
+      <div class="chip-live"><span class="chip" id="chipMode"><i></i><span>สีอัตโนมัติ</span></span><span class="chip" id="chipStable" hidden><i></i><span>นิ่งแล้ว</span></span></div>
+      <div class="tapnote" id="tapNote" hidden>แตะที่เม็ดยา 1 เม็ด เพื่อจำสี</div>
+      <div class="badge" id="badge" hidden><div class="n" id="liveCount">0</div><div class="s">เม็ด</div></div>
+      <div class="msg" id="camMsg"><div>กำลังเปิดกล้อง…</div></div>
+    </div>
+    <div class="pad">
+      <div id="drugBox"></div>
+      <div class="ctrls">
+        <div class="seg">
+          <button class="btn" id="btnColor">แตะเพื่อจำสีเม็ดยา</button>
+          <button class="btn" id="btnAuto" hidden>กลับเป็นสีอัตโนมัติ</button>
+          <button class="btn" id="btnTorch" hidden>ไฟฉาย</button>
+        </div>
+        <div class="slider"><span>แยกเม็ดน้อย</span><input id="sens" type="range" min="0" max="1" step="0.05" value="0.5" aria-label="ความไวในการจับสี"><span>มาก</span></div>
+        <button class="primary" id="btnFreeze" disabled>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3.2"/></svg>
+          หยุดภาพและตรวจสอบ</button>
+        <p class="hint" style="margin:0">QR บนสติกเกอร์อยู่ในเฟรมเมื่อไหร่ แอปอ่านรหัสยาให้เอง หรือค้นหาชื่อยาด้านบนก็ได้</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section class="view" id="v-hist">
+    <div class="top"><div><h1>ประวัติการนับ</h1><div class="sub" id="histSub"></div></div>
+      <button class="btn" id="btnCsv">ส่งออก CSV</button></div>
+    <div class="pad">
+      <div class="filters" id="filters">
+        <button class="btn on" data-f="today">วันนี้</button>
+        <button class="btn" data-f="7">7 วัน</button>
+        <button class="btn" data-f="30">30 วัน</button>
+        <button class="btn" data-f="all">ทั้งหมด</button>
+      </div>
+      <div class="search"><input id="histQ" type="search" placeholder="ค้นหาชื่อยา รหัส หรือ memo"></div>
+      <div id="histList"></div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="view" id="v-set">
+    <div class="top"><div><h1>ตั้งค่า</h1><div class="sub">ข้อมูลทั้งหมดเก็บในเครื่องนี้เท่านั้น</div></div></div>
+    <div class="pad set">
+      <div class="card"><h2>ชื่อผู้นับ</h2><input type="text" id="userName" placeholder="เช่น พิม"></div>
+      <div class="card">
+        <h2>รายการยา</h2>
+        <p class="hint" style="margin:0 0 10px" id="drugInfo">ยังไม่มีรายการยา</p>
+        <button class="btn" id="btnImport">นำเข้าจากไฟล์ Excel (Stock Balance)</button>
+        <p class="hint" style="margin:10px 0 0">ใช้คอลัมน์ item_code, item_name, baseUOM, Bins.name นำเข้าซ้ำได้เมื่อรายการเปลี่ยน รูปและสีเม็ดยาที่แอปจำไว้จะไม่หาย</p>
+      </div>
+      <div class="card">
+        <h2>นับให้แม่น</h2>
+        <ol class="tips">
+          <li>เทยาบนถาดสีเข้ม ยาเม็ดขาวยิ่งต้องใช้พื้นเข้ม</li>
+          <li>เกลี่ยเป็นชั้นเดียว ไม่ซ้อนกัน</li>
+          <li>ถือกล้องตรงจากด้านบน ให้เม็ดยาอยู่ในกรอบ</li>
+          <li>ถ้านับเพี้ยน กด "แตะเพื่อจำสีเม็ดยา" แล้วแตะเม็ดยา 1 เม็ด แอปจะจำสีนั้นไว้กับรหัสยา</li>
+          <li>ตรวจภาพก่อนบันทึกทุกครั้ง แตะเพื่อเพิ่มหรือลบจุด</li>
+        </ol>
+      </div>
+      <div class="card"><h2>สำรองข้อมูล</h2>
+        <div class="seg"><button class="btn" id="btnBackup">ส่งออกไฟล์สำรอง</button><button class="btn" id="btnRestore">นำเข้าไฟล์สำรอง</button></div>
+        <p class="hint" style="margin:10px 0 0">ถ้าล้างข้อมูลเบราว์เซอร์หรือเปลี่ยนเครื่อง ข้อมูลจะหาย ควรสำรองเป็นระยะ</p></div>
+      <p class="hint">PillCount v1.0</p>
+    </div>
+  </section>
+</div>
+
+<!-- REVIEW SHEET -->
+<div class="sheet" id="review" role="dialog" aria-label="ตรวจสอบการนับ">
+  <div class="inner">
+    <div class="top"><button class="btn" id="btnBack">← ถ่ายใหม่</button><span class="sub">แตะเพื่อเพิ่มหรือลบจุด</span></div>
+    <div class="revwrap"><canvas id="revCanvas"></canvas></div>
+    <div class="pad">
+      <div class="countline"><div class="when" id="revWhen"></div><div><div class="big" id="revCount">0</div><div class="auto" id="revAuto"></div></div></div>
+      <div class="slider"><span>แยกเม็ดน้อย</span><input id="revSens" type="range" min="0" max="1" step="0.05" value="0.5" aria-label="ความไว"><span>มาก</span></div>
+      <p class="hint" style="margin:4px 0 0">เลื่อนแล้วแอปจะนับใหม่ จุดที่แก้มือจะหายไป</p>
+      <div id="revDrug"></div>
+      <div style="margin-top:12px"><textarea id="memo" placeholder="Write memo"></textarea></div>
+      <label class="chk" id="refRow" hidden style="margin-top:8px"><input type="checkbox" id="setRef"> ใช้เป็นรูปเม็ดยาอ้างอิงของยานี้</label>
+      <div class="two" style="margin-top:14px"><button class="btn" id="btnRetake">ถ่ายใหม่</button><button class="primary" id="btnSave">บันทึก</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL SHEET -->
+<div class="sheet" id="detail" role="dialog" aria-label="รายละเอียด">
+  <div class="inner">
+    <div class="top"><button class="btn" id="btnDClose">← กลับ</button><button class="btn" id="btnDel" style="color:var(--danger)">ลบ</button></div>
+    <div class="pad detail" id="detailBody"></div>
+  </div>
+</div>
+
+<nav class="tabs"><div class="in">
+  <button class="tab on" data-v="live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><circle cx="12" cy="16" r="3"/></svg>นับยา</button>
+  <button class="tab" data-v="hist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>ประวัติ</button>
+  <button class="tab" data-v="set"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>ตั้งค่า</button>
+</div></nav>
+<div class="toast" id="toast"></div>
+<input type="file" id="filePhoto" accept="image/*" hidden>
+<input type="file" id="fileXlsx" accept=".xlsx,.xls,.csv" hidden>
+<input type="file" id="fileBackup" accept=".json,application/json" hidden>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="counter.js"></script>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const PROC = 360, REV = 900, ROI_INSET = 0.06;
+
+/* ---------- storage (IndexedDB) ---------- */
+const DB = (() => {
+  let dbp;
+  function open() {
+    if (dbp) return dbp;
+    dbp = new Promise((res, rej) => {
+      const r = indexedDB.open("pillcount", 1);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        d.createObjectStore("drugs", { keyPath: "code" });
+        const rs = d.createObjectStore("records", { keyPath: "id" });
+        rs.createIndex("ts", "ts");
+        d.createObjectStore("meta");
+      };
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+    return dbp;
+  }
+  async function tx(store, mode, fn) {
+    const d = await open();
+    return new Promise((res, rej) => {
+      const t = d.transaction(store, mode), s = t.objectStore(store);
+      let out; const r = fn(s);
+      if (r && "onsuccess" in r) r.onsuccess = () => { out = r.result; };
+      t.oncomplete = () => res(out); t.onerror = () => rej(t.error);
+    });
+  }
+  return {
+    get: (st, k) => tx(st, "readonly", s => s.get(k)),
+    put: (st, v, k) => tx(st, "readwrite", s => k === undefined ? s.put(v) : s.put(v, k)),
+    del: (st, k) => tx(st, "readwrite", s => s.delete(k)),
+    all: st => tx(st, "readonly", s => s.getAll()),
+    count: st => tx(st, "readonly", s => s.count()),
+    putMany: async (st, arr) => { const d = await open(); return new Promise((res, rej) => { const t = d.transaction(st, "readwrite"), s = t.objectStore(st); arr.forEach(v => s.put(v)); t.oncomplete = res; t.onerror = () => rej(t.error); }); },
+  };
+})();
+const LS = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+
+let drugs = new Map(); // code -> drug
+async function loadDrugs() { drugs = new Map((await DB.all("drugs")).map(d => [d.code, d])); renderDrugInfo(); }
+
+/* ---------- helpers ---------- */
+function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove("on"), 2200); }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+const pad2 = n => String(n).padStart(2, "0");
+function fmtTime(ts) { const d = new Date(ts); return `${d.getFullYear()}.${pad2(d.getMonth() + 1)}.${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+const TH_MONTH = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+function fmtDay(ts) { const d = new Date(ts); return `${d.getDate()} ${TH_MONTH[d.getMonth()]} ${d.getFullYear() + 543}`; }
+function dayKey(ts) { const d = new Date(ts); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function download(name, data, type) {
+  const url = URL.createObjectURL(new Blob([data], { type }));
+  const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+}
+
+/* ---------- current drug ---------- */
+let cur = { drug: null, unknownCode: null };
+let pillLab = null, sens = 0.5;
+
+function setDrug(d) {
+  cur.drug = d; cur.unknownCode = null;
+  pillLab = d && d.pillLab ? d.pillLab : null;
+  if (d && typeof d.sens === "number") { sens = d.sens; $("#sens").value = sens; }
+  updateModeChip(); renderDrugBox();
+}
+function renderDrugBox() {
+  const box = $("#drugBox");
+  if (cur.drug) {
+    const d = cur.drug;
+    box.innerHTML = `<div class="card drug">${d.ref ? `<img class="ref" src="${d.ref}" alt="รูปเม็ดยา">` : `<div class="ref">ยังไม่มีรูป</div>`}
+      <div style="min-width:0"><div class="nm">${esc(d.name)}</div><div class="meta">${esc(d.code)}${d.bin ? " · " + esc(d.bin) : ""}${d.uom ? " · " + esc(d.uom) : ""}</div></div>
+      <button class="x" id="clrDrug" aria-label="ล้างยาที่เลือก">×</button></div>`;
+    $("#clrDrug").onclick = () => setDrug(null);
+    $("#liveSub").textContent = "ยา: " + d.name;
+  } else if (cur.unknownCode) {
+    box.innerHTML = `<div class="card" style="margin-top:12px"><div class="warn">รหัส <b>${esc(cur.unknownCode)}</b> ไม่อยู่ในรายการยา</div>
+      <div class="row" style="margin-top:10px"><input id="newName" type="text" placeholder="ตั้งชื่อยาสำหรับรหัสนี้" style="flex:1;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px 12px"><button class="btn" id="saveNew">บันทึก</button></div></div>`;
+    $("#saveNew").onclick = async () => {
+      const name = $("#newName").value.trim(); if (!name) return;
+      const d = { code: cur.unknownCode, name, uom: "", bin: "", custom: true };
+      await DB.put("drugs", d); drugs.set(d.code, d); setDrug(d); toast("จำรหัสยานี้แล้ว");
+    };
+    $("#liveSub").textContent = "พบรหัสยาใหม่";
+  } else {
+    box.innerHTML = searchHTML("q1");
+    bindSearch("q1", d => setDrug(d));
+    $("#liveSub").textContent = "ส่องกล้องที่เม็ดยา ตัวเลขจะขึ้นสดๆ";
+  }
+}
+function searchHTML(id) { return `<div class="search"><input id="${id}" type="search" autocomplete="off" placeholder="${drugs.size ? "ส่อง QR หรือค้นหาชื่อยา / รหัส" : "ยังไม่มีรายการยา นำเข้าได้ที่ ตั้งค่า"}"><div class="results" id="${id}r" hidden></div></div>`; }
+function bindSearch(id, onPick) {
+  const inp = $("#" + id), res = $("#" + id + "r");
+  inp.addEventListener("input", () => {
+    const q = inp.value.trim().toLowerCase();
+    if (!q) { res.hidden = true; return; }
+    const out = [];
+    for (const d of drugs.values()) {
+      if (d.name.toLowerCase().includes(q) || d.code.includes(q)) { out.push(d); if (out.length >= 30) break; }
+    }
+    res.innerHTML = out.length ? out.map(d => `<button data-c="${esc(d.code)}">${esc(d.name)}<small>${esc(d.code)}${d.bin ? " · " + esc(d.bin) : ""}</small></button>`).join("") : `<div class="hint" style="padding:10px 12px">ไม่พบยา</div>`;
+    res.hidden = false;
+  });
+  res.addEventListener("click", e => { const b = e.target.closest("button[data-c]"); if (b) { res.hidden = true; onPick(drugs.get(b.dataset.c)); } });
+  inp.addEventListener("blur", () => setTimeout(() => res.hidden = true, 200));
+}
+
+async function onCode(text) {
+  const code = String(text).trim();
+  if (!code || (cur.drug && cur.drug.code === code) || cur.unknownCode === code) return;
+  try { navigator.vibrate && navigator.vibrate(60); } catch {}
+  const d = drugs.get(code);
+  if (d) { setDrug(d); toast(d.name); }
+  else { cur.drug = null; cur.unknownCode = code; pillLab = null; updateModeChip(); renderDrugBox(); }
+}
+
+/* ---------- camera + live loop ---------- */
+const video = $("#video"), overlay = $("#overlay");
+const proc = document.createElement("canvas"), pctx = proc.getContext("2d", { willReadFrequently: true });
+const qrc = document.createElement("canvas"), qctx = qrc.getContext("2d", { willReadFrequently: true });
+let stream = null, running = false, lastRes = null, lastFrame = null, hist = [], colorPick = false, wakeLock = null, track = null, torchOn = false;
+let detector = null;
+if ("BarcodeDetector" in window) { try { detector = new BarcodeDetector({ formats: ["qr_code"] }); } catch { detector = null; } }
+
+async function startCam() {
+  if (stream) return;
+  const msg = $("#camMsg");
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    msg.innerHTML = `<div>เบราว์เซอร์นี้เปิดกล้องไม่ได้</div><button class="btn" onclick="document.getElementById('filePhoto').click()">เลือกรูปแทน</button>`; return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } } });
+  } catch (e) {
+    msg.innerHTML = `<div>เปิดกล้องไม่ได้ (${esc(e.name)})<br><span class="hint" style="color:#b7cbc2">อนุญาตกล้องในการตั้งค่าเบราว์เซอร์ แล้วเปิดหน้านี้ใหม่</span></div><button class="btn" onclick="document.getElementById('filePhoto').click()">เลือกรูปแทน</button>`;
+    return;
+  }
+  video.srcObject = stream;
+  await video.play().catch(() => {});
+  await new Promise(r => video.videoWidth ? r() : video.addEventListener("loadedmetadata", r, { once: true }));
+  const vw = video.videoWidth, vh = video.videoHeight;
+  $("#stage").style.aspectRatio = `${vw} / ${vh}`;
+  const s = PROC / Math.max(vw, vh);
+  proc.width = Math.round(vw * s); proc.height = Math.round(vh * s);
+  msg.hidden = true; $("#badge").hidden = false; $("#btnFreeze").disabled = false;
+  track = stream.getVideoTracks()[0];
+  try { const caps = track.getCapabilities ? track.getCapabilities() : {}; $("#btnTorch").hidden = !caps.torch; } catch {}
+  try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); } catch {}
+  running = true; hist = []; loop(); qrLoop();
+}
+function stopCam() {
+  running = false;
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  video.srcObject = null; torchOn = false; $("#btnTorch").classList.remove("on");
+  try { wakeLock && wakeLock.release(); } catch {} wakeLock = null;
+  $("#camMsg").hidden = false; $("#camMsg").innerHTML = "<div>กล้องปิดอยู่</div>"; $("#badge").hidden = true; $("#btnFreeze").disabled = true;
+}
+
+function roiFor(w, h) { return { x0: Math.round(w * ROI_INSET), y0: Math.round(h * ROI_INSET), x1: Math.round(w * (1 - ROI_INSET)), y1: Math.round(h * (1 - ROI_INSET)) }; }
+
+let lastT = 0;
+function loop() {
+  if (!running) return;
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  if (now - lastT < 110) return; lastT = now;
+  if (!video.videoWidth) return;
+  pctx.drawImage(video, 0, 0, proc.width, proc.height);
+  const img = pctx.getImageData(0, 0, proc.width, proc.height);
+  lastFrame = img;
+  const res = PillCounter.countPills(img.data, img.width, img.height, { pillLab, sens, roi: roiFor(img.width, img.height) });
+  lastRes = res;
+  hist.push(res.count); if (hist.length > 9) hist.shift();
+  const freq = {}; let best = res.count, bc = 0;
+  for (const c of hist) { freq[c] = (freq[c] || 0) + 1; if (freq[c] > bc) { bc = freq[c]; best = c; } }
+  const stable = hist.length >= 6 && bc / hist.length >= 0.7;
+  $("#liveCount").textContent = best;
+  const cs = $("#chipStable"); cs.hidden = !stable; cs.classList.toggle("ok", stable);
+  drawOverlay(res);
+}
+function drawOverlay(res) {
+  const r = overlay.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+  if (overlay.width !== Math.round(r.width * dpr)) { overlay.width = Math.round(r.width * dpr); overlay.height = Math.round(r.height * dpr); }
+  const c = overlay.getContext("2d"), W = overlay.width, H = overlay.height;
+  c.clearRect(0, 0, W, H);
+  const sx = W / proc.width, sy = H / proc.height;
+  // guide frame
+  const g = roiFor(proc.width, proc.height);
+  c.strokeStyle = "rgba(255,255,255,.55)"; c.lineWidth = 2 * dpr; c.setLineDash([10 * dpr, 8 * dpr]);
+  c.strokeRect(g.x0 * sx, g.y0 * sy, (g.x1 - g.x0) * sx, (g.y1 - g.y0) * sy); c.setLineDash([]);
+  const rad = Math.max(4, Math.min(9, (res.r || 6) * sx * 0.22)) * 1;
+  for (const d of res.dots) {
+    c.beginPath(); c.arc(d.x * sx, d.y * sy, rad, 0, Math.PI * 2);
+    c.fillStyle = "#19e07f"; c.fill(); c.lineWidth = 1.5 * dpr; c.strokeStyle = "rgba(0,0,0,.45)"; c.stroke();
+  }
+}
+
+let qrBusy = false;
+async function qrLoop() {
+  if (!running) return;
+  setTimeout(qrLoop, 380);
+  if (qrBusy || !video.videoWidth || document.hidden) return;
+  qrBusy = true;
+  try {
+    if (detector) {
+      const out = await detector.detect(video);
+      if (out && out[0]) onCode(out[0].rawValue);
+    } else if (window.jsQR) {
+      const vw = video.videoWidth, vh = video.videoHeight, s = Math.min(1, 900 / Math.max(vw, vh));
+      qrc.width = Math.round(vw * s); qrc.height = Math.round(vh * s);
+      qctx.drawImage(video, 0, 0, qrc.width, qrc.height);
+      const d = qctx.getImageData(0, 0, qrc.width, qrc.height);
+      const r = jsQR(d.data, d.width, d.height, { inversionAttempts: "dontInvert" });
+      if (r && r.data) onCode(r.data);
+    }
+  } catch {}
+  qrBusy = false;
+}
+
+function updateModeChip() {
+  const ch = $("#chipMode");
+  ch.classList.toggle("ok", !!pillLab);
+  ch.querySelector("span").textContent = pillLab ? (cur.drug && cur.drug.pillLab === pillLab ? "สีที่จำไว้ของยานี้" : "สีที่แตะไว้") : "สีอัตโนมัติ";
+  $("#btnAuto").hidden = !pillLab;
+}
+$("#btnColor").onclick = () => { colorPick = !colorPick; $("#btnColor").classList.toggle("on", colorPick); $("#tapNote").hidden = !colorPick; };
+$("#btnAuto").onclick = () => { pillLab = null; updateModeChip(); };
+$("#stage").addEventListener("click", e => {
+  if (!colorPick || !lastFrame) return;
+  const r = overlay.getBoundingClientRect();
+  const x = Math.round((e.clientX - r.left) / r.width * proc.width), y = Math.round((e.clientY - r.top) / r.height * proc.height);
+  pillLab = PillCounter.sampleLab(lastFrame.data, lastFrame.width, lastFrame.height, x, y, 3);
+  colorPick = false; $("#btnColor").classList.remove("on"); $("#tapNote").hidden = true;
+  hist = []; updateModeChip(); toast("จำสีเม็ดยาแล้ว");
+});
+$("#sens").addEventListener("input", e => { sens = +e.target.value; hist = []; });
+$("#btnTorch").onclick = async () => { try { torchOn = !torchOn; await track.applyConstraints({ advanced: [{ torch: torchOn }] }); $("#btnTorch").classList.toggle("on", torchOn); } catch { toast("เปิดไฟฉายไม่ได้"); } };
+
+/* ---------- review ---------- */
+const rev = { canvas: $("#revCanvas"), src: null, w: 0, h: 0, dots: [], auto: 0, r: 8, ts: 0, pillLab: null, sens: 0.5 };
+function openReview(source) {
+  // source: video or image element
+  const sw = source.videoWidth || source.naturalWidth, sh = source.videoHeight || source.naturalHeight;
+  const s = Math.min(1, REV / Math.max(sw, sh));
+  const w = Math.round(sw * s), h = Math.round(sh * s);
+  const src = document.createElement("canvas"); src.width = w; src.height = h;
+  src.getContext("2d").drawImage(source, 0, 0, w, h);
+  rev.src = src; rev.w = w; rev.h = h; rev.ts = Date.now(); rev.pillLab = pillLab; rev.sens = sens;
+  rev.canvas.width = w; rev.canvas.height = h;
+  $("#revSens").value = sens; $("#memo").value = "";
+  $("#revWhen").textContent = `${fmtTime(rev.ts)}  ${LS.get("pc_user", "")}`;
+  runReview();
+  renderRevDrug();
+  stopCam();
+  $("#review").classList.add("on"); $("#review").scrollTop = 0;
+}
+function runReview() {
+  const d = rev.src.getContext("2d").getImageData(0, 0, rev.w, rev.h);
+  // process at ~half size for speed, then scale dots up
+  const k = Math.min(1, 640 / Math.max(rev.w, rev.h));
+  let data = d.data, w = rev.w, h = rev.h;
+  if (k < 1) {
+    const c = document.createElement("canvas"); c.width = Math.round(rev.w * k); c.height = Math.round(rev.h * k);
+    c.getContext("2d").drawImage(rev.src, 0, 0, c.width, c.height);
+    const dd = c.getContext("2d").getImageData(0, 0, c.width, c.height); data = dd.data; w = c.width; h = c.height;
+  }
+  const res = PillCounter.countPills(data, w, h, { pillLab: rev.pillLab, sens: rev.sens, roi: { x0: 0, y0: 0, x1: w, y1: h } });
+  rev.dots = res.dots.map(p => ({ x: p.x / k, y: p.y / k }));
+  rev.auto = res.count; rev.r = (res.r || 8) / k;
+  if (!rev.pillLab) rev.autoLab = res.pillLab;
+  drawReview();
+}
+function drawReview() {
+  const c = rev.canvas.getContext("2d");
+  c.drawImage(rev.src, 0, 0);
+  const rad = Math.max(5, Math.min(14, rev.r * 0.22));
+  for (const d of rev.dots) {
+    c.beginPath(); c.arc(d.x, d.y, rad, 0, Math.PI * 2);
+    c.fillStyle = "#19e07f"; c.fill(); c.lineWidth = 2; c.strokeStyle = "rgba(0,0,0,.45)"; c.stroke();
+  }
+  $("#revCount").textContent = rev.dots.length;
+  $("#revAuto").textContent = rev.dots.length !== rev.auto ? `แอปนับได้ ${rev.auto} · แก้มือ` : "นับโดยแอป";
+}
+rev.canvas.addEventListener("click", e => {
+  const r = rev.canvas.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * rev.w, y = (e.clientY - r.top) / r.height * rev.h;
+  const hit = Math.max(rev.r * 0.8, 16 * rev.w / r.width);
+  let bi = -1, bd = Infinity;
+  rev.dots.forEach((d, i) => { const dd = Math.hypot(d.x - x, d.y - y); if (dd < bd) { bd = dd; bi = i; } });
+  if (bi >= 0 && bd <= hit) rev.dots.splice(bi, 1); else rev.dots.push({ x, y });
+  drawReview();
+});
+$("#revSens").addEventListener("input", e => { rev.sens = +e.target.value; runReview(); });
+function renderRevDrug() {
+  const box = $("#revDrug");
+  if (cur.drug) {
+    const d = cur.drug;
+    box.innerHTML = `<div class="card drug">${d.ref ? `<img class="ref" src="${d.ref}" alt="">` : `<div class="ref">ยังไม่มีรูป</div>`}<div style="min-width:0"><div class="nm">${esc(d.name)}</div><div class="meta">${esc(d.code)}</div></div><button class="x" id="revClr" aria-label="เปลี่ยนยา">×</button></div>`;
+    $("#revClr").onclick = () => { setDrug(null); renderRevDrug(); };
+    $("#refRow").hidden = false; $("#setRef").checked = !d.ref;
+  } else {
+    box.innerHTML = `<div style="margin-top:12px">${searchHTML("q2")}</div>`;
+    bindSearch("q2", d => { setDrug(d); renderRevDrug(); });
+    $("#refRow").hidden = true;
+  }
+}
+function back() { $("#review").classList.remove("on"); if (currentView === "live") startCam(); }
+$("#btnBack").onclick = back; $("#btnRetake").onclick = back;
+$("#btnFreeze").onclick = () => { if (video.videoWidth) openReview(video); };
+
+function thumb(srcCanvas, maxSide, drawDots) {
+  const s = Math.min(1, maxSide / Math.max(srcCanvas.width, srcCanvas.height));
+  const c = document.createElement("canvas"); c.width = Math.round(srcCanvas.width * s); c.height = Math.round(srcCanvas.height * s);
+  const x = c.getContext("2d"); x.drawImage(srcCanvas, 0, 0, c.width, c.height);
+  if (drawDots) { const rad = Math.max(3, Math.min(8, rev.r * s * 0.25)); for (const d of rev.dots) { x.beginPath(); x.arc(d.x * s, d.y * s, rad, 0, 7); x.fillStyle = "#19e07f"; x.fill(); } }
+  return c.toDataURL("image/jpeg", 0.72);
+}
+function refCrop() {
+  if (!rev.dots.length) return null;
+  // pill nearest the median position, cropped from the clean frame
+  const xs = rev.dots.map(d => d.x).sort((a, b) => a - b), ys = rev.dots.map(d => d.y).sort((a, b) => a - b);
+  const mx = xs[xs.length >> 1], my = ys[ys.length >> 1];
+  let best = rev.dots[0], bd = Infinity;
+  for (const d of rev.dots) { const dd = Math.hypot(d.x - mx, d.y - my); if (dd < bd) { bd = dd; best = d; } }
+  const half = Math.max(24, rev.r * 1.5);
+  const c = document.createElement("canvas"); c.width = c.height = 160;
+  c.getContext("2d").drawImage(rev.src, best.x - half, best.y - half, half * 2, half * 2, 0, 0, 160, 160);
+  return c.toDataURL("image/jpeg", 0.8);
+}
+$("#btnSave").onclick = async () => {
+  const d = cur.drug;
+  const rec = {
+    id: uid(), ts: rev.ts, count: rev.dots.length, auto: rev.auto,
+    code: d ? d.code : "", name: d ? d.name : "",
+    memo: $("#memo").value.trim(), user: LS.get("pc_user", ""), thumb: thumb(rev.src, 520, true),
+  };
+  try {
+    await DB.put("records", rec);
+    if (d) {
+      const upd = Object.assign({}, d);
+      if ($("#setRef").checked) upd.ref = refCrop();
+      if (rev.pillLab) upd.pillLab = rev.pillLab;
+      upd.sens = rev.sens;
+      await DB.put("drugs", upd); drugs.set(upd.code, upd);
+    }
+  } catch (e) { toast("บันทึกไม่สำเร็จ: " + e.message); return; }
+  toast(`บันทึกแล้ว ${rec.count} เม็ด`);
+  setDrug(null);
+  $("#review").classList.remove("on");
+  if (currentView === "live") startCam();
+};
+
+/* photo from gallery */
+$("#btnPhoto").onclick = () => $("#filePhoto").click();
+$("#filePhoto").addEventListener("change", e => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = new Image();
+  img.onload = () => { openReview(img); URL.revokeObjectURL(img.src); };
+  img.src = URL.createObjectURL(f); e.target.value = "";
+});
+
+/* ---------- history ---------- */
+let filt = "today", detailRec = null, delArmed = false;
+async function renderHist() {
+  const all = (await DB.all("records")).sort((a, b) => b.ts - a.ts);
+  const q = $("#histQ").value.trim().toLowerCase();
+  const now = new Date(); const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const lim = filt === "today" ? start : filt === "all" ? 0 : start - (+filt - 1) * 864e5;
+  const list = all.filter(r => r.ts >= lim && (!q || (r.name || "").toLowerCase().includes(q) || (r.code || "").includes(q) || (r.memo || "").toLowerCase().includes(q)));
+  $("#histSub").textContent = `${list.length} รายการ`;
+  const el = $("#histList");
+  if (!list.length) { el.innerHTML = `<div class="empty">${all.length ? "ไม่มีรายการในช่วงนี้" : "ยังไม่มีประวัติ<br>นับยาแล้วกดบันทึก รายการจะมาอยู่ที่นี่"}</div>`; return; }
+  let html = "", last = "";
+  const groups = {};
+  for (const r of list) { const k = dayKey(r.ts); (groups[k] = groups[k] || []).push(r); }
+  for (const k of Object.keys(groups)) {
+    const g = groups[k];
+    html += `<div class="day"><span>${fmtDay(g[0].ts)}</span><span>${g.length} รายการ</span></div>`;
+    for (const r of g) {
+      const t = new Date(r.ts);
+      html += `<button class="rec" data-id="${r.id}"><img src="${r.thumb}" alt=""><div style="min-width:0"><div class="nm">${esc(r.name || "ไม่ระบุยา")}</div><div class="mm">${pad2(t.getHours())}:${pad2(t.getMinutes())}${r.memo ? " · " + esc(r.memo) : ""}</div></div><div class="ct">${r.count}<small>${r.count !== r.auto ? "แก้มือ" : "เม็ด"}</small></div></button>`;
+    }
+  }
+  el.innerHTML = html;
+}
+$("#filters").addEventListener("click", e => { const b = e.target.closest("button[data-f]"); if (!b) return; filt = b.dataset.f; document.querySelectorAll("#filters .btn").forEach(x => x.classList.toggle("on", x === b)); renderHist(); });
+$("#histQ").addEventListener("input", renderHist);
+$("#histList").addEventListener("click", async e => {
+  const b = e.target.closest(".rec"); if (!b) return;
+  const r = await DB.get("records", b.dataset.id); if (!r) return;
+  detailRec = r; delArmed = false; $("#btnDel").textContent = "ลบ";
+  $("#detailBody").innerHTML = `<img src="${r.thumb}" alt="ภาพที่นับ">
+    <div class="countline"><div class="when">${fmtTime(r.ts)}  ${esc(r.user)}</div><div class="big">${r.count}</div></div>
+    <dl class="kv"><dt>ยา</dt><dd>${esc(r.name || "ไม่ระบุ")}</dd><dt>รหัส</dt><dd>${esc(r.code || "–")}</dd><dt>แอปนับได้</dt><dd>${r.auto}${r.count !== r.auto ? " (แก้เป็น " + r.count + ")" : ""}</dd><dt>Memo</dt><dd>${esc(r.memo || "–")}</dd></dl>`;
+  $("#detail").classList.add("on");
+});
+$("#btnDClose").onclick = () => $("#detail").classList.remove("on");
+$("#btnDel").onclick = async () => {
+  if (!delArmed) { delArmed = true; $("#btnDel").textContent = "แตะอีกครั้งเพื่อลบ"; return; }
+  await DB.del("records", detailRec.id); $("#detail").classList.remove("on"); toast("ลบแล้ว"); renderHist();
+};
+$("#btnCsv").onclick = async () => {
+  const all = (await DB.all("records")).sort((a, b) => a.ts - b.ts);
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [["วันเวลา", "รหัสยา", "ชื่อยา", "จำนวน", "แอปนับได้", "Memo", "ผู้นับ"].map(q).join(",")];
+  for (const r of all) rows.push([fmtTime(r.ts), "\t" + (r.code || ""), r.name, r.count, r.auto, r.memo, r.user].map(q).join(","));
+  download(`pillcount_${dayKey(Date.now())}.csv`, "﻿" + rows.join("\r\n"), "text/csv;charset=utf-8");
+};
+
+/* ---------- settings ---------- */
+const userInp = $("#userName");
+userInp.value = LS.get("pc_user", "");
+userInp.addEventListener("input", () => LS.set("pc_user", userInp.value.trim()));
+async function renderDrugInfo() {
+  const t = LS.get("pc_import", "");
+  $("#drugInfo").textContent = drugs.size ? `${drugs.size.toLocaleString()} รายการ${t ? " · นำเข้าล่าสุด " + fmtTime(+t) : ""}` : "ยังไม่มีรายการยา นำเข้าไฟล์ Stock Balance ก่อนใช้สแกน QR";
+}
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("โหลดตัวอ่าน Excel ไม่ได้ ตรวจอินเทอร์เน็ต")); document.head.appendChild(s); }); }
+$("#btnImport").onclick = () => $("#fileXlsx").click();
+$("#fileXlsx").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    toast("กำลังอ่านไฟล์…");
+    if (!window.XLSX) await loadScript("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js");
+    const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "", raw: false });
+    if (!rows.length) throw new Error("ไฟล์ว่าง");
+    const keys = Object.keys(rows[0]);
+    const find = (...c) => keys.find(k => c.some(x => k.toLowerCase().replace(/[^a-z]/g, "") === x)) || keys.find(k => c.some(x => k.toLowerCase().includes(x)));
+    const kc = find("itemcode", "code"), kn = find("itemname", "name"), ku = find("baseuom", "uom"), kb = find("binsname", "bin");
+    if (!kc || !kn) throw new Error("ไม่พบคอลัมน์ item_code / item_name");
+    const out = new Map();
+    for (const r of rows) {
+      const code = String(r[kc]).trim(), name = String(r[kn]).trim();
+      if (!code || !name || out.has(code)) continue;
+      const old = drugs.get(code) || {};
+      out.set(code, { code, name, uom: ku ? String(r[ku]).trim() : "", bin: kb ? String(r[kb]).trim() : "", ref: old.ref, pillLab: old.pillLab, sens: old.sens });
+    }
+    for (const d of drugs.values()) if (d.custom && !out.has(d.code)) out.set(d.code, d);
+    await DB.putMany("drugs", [...out.values()]);
+    LS.set("pc_import", String(Date.now()));
+    await loadDrugs(); renderDrugBox();
+    toast(`นำเข้า ${out.size.toLocaleString()} รายการยาแล้ว`);
+  } catch (err) { toast(err.message || "นำเข้าไม่สำเร็จ"); }
+});
+$("#btnBackup").onclick = async () => {
+  const data = { app: "pillcount", v: 1, at: Date.now(), drugs: await DB.all("drugs"), records: await DB.all("records") };
+  download(`pillcount_backup_${dayKey(Date.now())}.json`, JSON.stringify(data), "application/json");
+};
+$("#btnRestore").onclick = () => $("#fileBackup").click();
+$("#fileBackup").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (data.app !== "pillcount") throw new Error("ไม่ใช่ไฟล์สำรองของแอปนี้");
+    await DB.putMany("drugs", data.drugs || []); await DB.putMany("records", data.records || []);
+    await loadDrugs(); renderDrugBox(); toast(`กู้คืน ${(data.records || []).length} รายการแล้ว`);
+  } catch (err) { toast(err.message || "กู้คืนไม่สำเร็จ"); }
+});
+
+/* ---------- navigation ---------- */
+let currentView = "live";
+function show(v) {
+  currentView = v;
+  document.querySelectorAll(".view").forEach(s => s.classList.toggle("on", s.id === "v-" + v));
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.v === v));
+  if (v === "live") startCam(); else stopCam();
+  if (v === "hist") renderHist();
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => show(t.dataset.v));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopCam();
+  else if (currentView === "live" && !$("#review").classList.contains("on")) startCam();
+});
+
+(async function init() {
+  if (!LS.get("pc_user", "")) { LS.set("pc_user", "พิม"); userInp.value = "พิม"; }
+  try { await loadDrugs(); } catch {}
+  renderDrugBox();
+  startCam();
+  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+})();
+</script>
+</body>
+</html>
