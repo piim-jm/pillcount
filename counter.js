@@ -204,17 +204,28 @@
   // auto: background = dominant colour; pill = dominant colour among the rest
   function autoPillLab(lab, w, h, roi, sens) {
     const { L, A, B } = lab;
-    const first = buildMask(lab, w, h, roi, { sens }).mask;
+    const { mask: first, bg } = buildMask(lab, w, h, roi, { sens });
     const bins = new Map();
+    let n = 0;
     for (let y = roi.y0; y < roi.y1; y += 2) for (let x = roi.x0; x < roi.x1; x += 2) {
-      const i = y * w + x; if (!first[i]) continue;
+      const i = y * w + x; n++; if (!first[i]) continue;
       const k = ((L[i] / 10) | 0) * 4096 + (((A[i] + 128) / 8) | 0) * 64 + (((B[i] + 128) / 8) | 0);
       const e = bins.get(k);
       if (e) { e[0]++; e[1] += L[i]; e[2] += A[i]; e[3] += B[i]; } else bins.set(k, [1, L[i], A[i], B[i]]);
     }
-    let top = null;
-    for (const e of bins.values()) if (!top || e[0] > top[0]) top = e;
-    return top ? [top[1] / top[0], top[2] / top[0], top[3] / top[0]] : null;
+    // Shadows, foil and hands are grey. If any clearly coloured thing that
+    // isn't the background covers enough of the frame, that is the tablet.
+    let top = null, topC = null, chromaN = 0;
+    for (const e of bins.values()) {
+      if (!top || e[0] > top[0]) top = e;
+      const a = e[2] / e[0], b = e[3] / e[0];
+      if (Math.hypot(a, b) < 13) continue;
+      if (bg && Math.hypot(a - bg[1], b - bg[2]) < 12) continue;
+      chromaN += e[0];
+      if (!topC || e[0] > topC[0]) topC = e;
+    }
+    const pick = topC && chromaN > n * 0.012 ? topC : top;
+    return pick ? [pick[1] / pick[0], pick[2] / pick[0], pick[3] / pick[0]] : null;
   }
 
   function countPills(rgba, w, h, opts) {
