@@ -211,7 +211,7 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;font-weight:500;min-width:0;overf
     <div class="pad">
       <div class="countline"><div class="when" id="revWhen"></div><div><div class="big" id="revCount">0</div><div class="auto" id="revAuto"></div></div></div>
       <div class="slider"><span>แยกเม็ดน้อย</span><input id="revSens" type="range" min="0" max="1" step="0.05" value="0.5" aria-label="ความไว"><span>มาก</span></div>
-      <p class="hint" style="margin:4px 0 0">เลื่อนแล้วแอปจะนับใหม่ จุดที่แก้มือจะหายไป</p>
+      <p class="hint" style="margin:4px 0 0">จุดสีส้มคือเม็ดที่ติดกัน แอปมักนับเพี้ยนตรงนี้ ±1 เกลี่ยให้เม็ดแยกกันจะแม่นที่สุด · เลื่อนแถบแล้วแอปจะนับใหม่ จุดที่แก้มือจะหายไป</p>
       <div id="revDrug"></div>
       <div style="margin-top:12px"><textarea id="memo" placeholder="Write memo"></textarea></div>
       <label class="chk" id="refRow" hidden style="margin-top:8px"><input type="checkbox" id="setRef"> ใช้เป็นรูปเม็ดยาอ้างอิงของยานี้</label>
@@ -437,7 +437,7 @@ function drawOverlay(res) {
   const rad = Math.max(4, Math.min(9, (res.r || 6) * sx * 0.22)) * 1;
   for (const d of res.dots) {
     c.beginPath(); c.arc(d.x * sx, d.y * sy, rad, 0, Math.PI * 2);
-    c.fillStyle = "#19e07f"; c.fill(); c.lineWidth = 1.5 * dpr; c.strokeStyle = "rgba(0,0,0,.45)"; c.stroke();
+    c.fillStyle = d.chk ? "#ffb020" : "#19e07f"; c.fill(); c.lineWidth = 1.5 * dpr; c.strokeStyle = "rgba(0,0,0,.45)"; c.stroke();
   }
 }
 
@@ -511,7 +511,7 @@ function runReview() {
     const dd = c.getContext("2d").getImageData(0, 0, c.width, c.height); data = dd.data; w = c.width; h = c.height;
   }
   const res = PillCounter.countPills(data, w, h, { pillLab: rev.pillLab, sens: rev.sens, roi: { x0: 0, y0: 0, x1: w, y1: h } });
-  rev.dots = res.dots.map(p => ({ x: p.x / k, y: p.y / k }));
+  rev.dots = res.dots.map(p => ({ x: p.x / k, y: p.y / k, chk: p.chk }));
   rev.auto = res.count; rev.r = (res.r || 8) / k;
   if (!rev.pillLab) rev.autoLab = res.pillLab;
   drawReview();
@@ -522,10 +522,11 @@ function drawReview() {
   const rad = Math.max(5, Math.min(14, rev.r * 0.22));
   for (const d of rev.dots) {
     c.beginPath(); c.arc(d.x, d.y, rad, 0, Math.PI * 2);
-    c.fillStyle = "#19e07f"; c.fill(); c.lineWidth = 2; c.strokeStyle = "rgba(0,0,0,.45)"; c.stroke();
+    c.fillStyle = d.chk ? "#ffb020" : "#19e07f"; c.fill(); c.lineWidth = 2; c.strokeStyle = "rgba(0,0,0,.45)"; c.stroke();
   }
   $("#revCount").textContent = rev.dots.length;
-  $("#revAuto").textContent = rev.dots.length !== rev.auto ? `แอปนับได้ ${rev.auto} · แก้มือ` : "นับโดยแอป";
+  const nchk = rev.dots.filter(d => d.chk).length;
+  $("#revAuto").textContent = rev.dots.length !== rev.auto ? `แอปนับได้ ${rev.auto} · แก้มือ` : nchk ? `จุดสีส้ม ${nchk} จุด = เม็ดติดกัน ควรตรวจ` : "นับโดยแอป";
 }
 rev.canvas.addEventListener("click", e => {
   const r = rev.canvas.getBoundingClientRect();

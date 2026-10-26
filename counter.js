@@ -295,8 +295,10 @@
         // elongated tablets give extra peaks; hidden touching pills give too few
         if (na >= 1 && Math.abs(na - n) >= 1 && (n === 1 ? na >= 2 && c.area / unit > 1.7 : true)) n = na;
       }
-      if (n === ps.length) for (const p of ps) dots.push({ x: p.x, y: p.y });
-      else for (const d of kmeans(c.px, w, n)) dots.push(d);
+      // tablets touching each other are the usual source of ±1 errors: flag them
+      const chk = n > 1;
+      if (n === ps.length) for (const p of ps) dots.push({ x: p.x, y: p.y, chk });
+      else for (const d of kmeans(c.px, w, n)) dots.push({ x: d.x, y: d.y, chk });
     }
     return { count: dots.length, dots, unit, r, pillLab };
   }
