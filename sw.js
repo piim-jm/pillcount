@@ -1,5 +1,5 @@
 // Offline cache: app files first from cache, refreshed in the background
-const CACHE = "pillcount-v7";
+const CACHE = "pillcount-v8";
 const SHELL = ["./", "index.html", "counter.js", "ai.js", "model.onnx", "manifest.webmanifest", "icon-192.png", "icon-512.png",
   "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
