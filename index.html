@@ -156,7 +156,7 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;font-weight:500;min-width:0;overf
         <button class="primary" id="btnFreeze" disabled>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3.2"/></svg>
           หยุดภาพและตรวจสอบ</button>
-        <p class="hint" style="margin:0">QR บนสติกเกอร์อยู่ในเฟรมเมื่อไหร่ แอปอ่านรหัสยาให้เอง หรือค้นหาชื่อยาด้านบนก็ได้</p>
+        <p class="hint" style="margin:0">ตัวเลขสดมาจาก AI (ช่วงแรกที่โมเดลยังโหลดไม่เสร็จจะใช้วิธีสี) · QR บนสติกเกอร์อยู่ในเฟรมเมื่อไหร่ แอปอ่านรหัสยาให้เอง หรือค้นหาชื่อยาด้านบนก็ได้</p>
       </div>
     </div>
   </section>
@@ -221,7 +221,7 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;font-weight:500;min-width:0;overf
     <div class="revwrap"><canvas id="revCanvas"></canvas></div>
     <div class="pad">
       <div class="countline"><div class="when" id="revWhen"></div><div><div class="big" id="revCount">0</div><div class="auto" id="revAuto"></div></div></div>
-      <div class="method" id="methodBox"><button class="btn on" id="mColor" data-m="color">สี <b id="nColor">–</b></button><button class="btn" id="mAi" data-m="ai">AI <b id="nAi">…</b></button></div>
+      <div class="method" id="methodBox"><button class="btn" id="mAi" data-m="ai">AI <b id="nAi">…</b></button><button class="btn on" id="mColor" data-m="color">สี <b id="nColor">–</b></button></div>
       <p class="hint" id="aiNote" style="margin:6px 0 10px"></p>
       <div class="slider"><span>แยกเม็ดน้อย</span><input id="revSens" type="range" min="0" max="1" step="0.05" value="0.5" aria-label="ความไว"><span>มาก</span></div>
       <p class="hint" style="margin:4px 0 0">จุดสีส้มคือเม็ดที่ติดกัน แอปมักนับเพี้ยนตรงนี้ ±1 เกลี่ยให้เม็ดแยกกันจะแม่นที่สุด · เลื่อนแถบแล้วแอปจะนับใหม่ จุดที่แก้มือจะหายไป</p>
@@ -410,7 +410,7 @@ async function startCam() {
   track = stream.getVideoTracks()[0];
   try { const caps = track.getCapabilities ? track.getCapabilities() : {}; $("#btnTorch").hidden = !caps.torch; } catch {}
   try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); } catch {}
-  running = true; hist = []; loop(); qrLoop();
+  running = true; hist = []; liveAI.on = false; loop(); qrLoop(); liveAILoop();
 }
 function stopCam() {
   running = false;
@@ -429,18 +429,47 @@ function loop() {
   const now = performance.now();
   if (now - lastT < 110) return; lastT = now;
   if (!video.videoWidth) return;
+  if (liveAI.on && now - liveAI.t < 2500) return; // AI is counting the live view
   pctx.drawImage(video, 0, 0, proc.width, proc.height);
   const img = pctx.getImageData(0, 0, proc.width, proc.height);
   lastFrame = img;
   const res = PillCounter.countPills(img.data, img.width, img.height, { pillLab, sens, roi: roiFor(img.width, img.height) });
   lastRes = res;
-  hist.push(res.count); if (hist.length > 9) hist.shift();
+  showLive(res, 9, 6);
+}
+function showLive(res, keep, need) {
+  hist.push(res.count); if (hist.length > keep) hist.shift();
   const freq = {}; let best = res.count, bc = 0;
   for (const c of hist) { freq[c] = (freq[c] || 0) + 1; if (freq[c] > bc) { bc = freq[c]; best = c; } }
-  const stable = hist.length >= 6 && bc / hist.length >= 0.7;
+  const stable = hist.length >= need && bc / hist.length >= 0.7;
   $("#liveCount").textContent = best;
   const cs = $("#chipStable"); cs.hidden = !stable; cs.classList.toggle("ok", stable);
   drawOverlay(res);
+}
+
+/* live AI: count every frame the model can keep up with (about 1–2 per second) */
+const liveAI = { on: false, t: 0, busy: false };
+async function liveAILoop() {
+  if (!running) { liveAI.on = false; return; }
+  if (!aiEnabled() || !video.videoWidth) { setTimeout(liveAILoop, 400); return; }
+  try {
+    await loadAI();
+    if (!running) return;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const boxes = await aiDetect(video, vw, vh);
+    if (!running) return;
+    const k = proc.width / vw;
+    const ws = boxes.map(b => b[2] - b[0]).sort((a, b) => a - b);
+    const res = { count: boxes.length, r: (ws[ws.length >> 1] || 30) * k / 2,
+      dots: boxes.map(b => ({ x: (b[0] + b[2]) / 2 * k, y: (b[1] + b[3]) / 2 * k, chk: b[4] < 0.45 })) };
+    if (!liveAI.on) { liveAI.on = true; hist = []; updateModeChip(); }
+    liveAI.t = performance.now();
+    showLive(res, 5, 3);
+  } catch (e) {
+    if (liveAI.on) { liveAI.on = false; updateModeChip(); }
+    setTimeout(liveAILoop, 3000); return;
+  }
+  setTimeout(liveAILoop, 30);
 }
 function drawOverlay(res) {
   const r = overlay.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -483,7 +512,9 @@ async function qrLoop() {
 
 function updateModeChip() {
   const ch = $("#chipMode");
-  ch.classList.toggle("ok", !!pillLab);
+  ch.classList.toggle("ok", !!pillLab || liveAI.on);
+  $("#btnColor").hidden = liveAI.on; $("#sens").closest(".slider").hidden = liveAI.on;
+  if (liveAI.on) { ch.querySelector("span").textContent = "AI นับสด"; $("#btnAuto").hidden = true; return; }
   ch.querySelector("span").textContent = pillLab ? (cur.drug && cur.drug.pillLab === pillLab ? "สีที่จำไว้ของยานี้" : "สีที่แตะไว้") : "สีอัตโนมัติ";
   $("#btnAuto").hidden = !pillLab;
 }
@@ -558,34 +589,42 @@ function loadAI() {
   })().catch(e => { aiLoading = null; throw e; });
   return aiLoading;
 }
+// run the model on any image/video/canvas; returns boxes [x0,y0,x1,y1,score] in source pixels
+const aiCanvas = document.createElement("canvas"); aiCanvas.width = aiCanvas.height = AI_SIZE;
+const aiCtx = aiCanvas.getContext("2d", { willReadFrequently: true });
+async function aiDetect(source, w, h) {
+  const sess = await loadAI();
+  const sc = AI_SIZE / Math.max(w, h);
+  aiCtx.fillStyle = "rgb(114,114,114)"; aiCtx.fillRect(0, 0, AI_SIZE, AI_SIZE);
+  aiCtx.drawImage(source, 0, 0, Math.round(w * sc), Math.round(h * sc));
+  const px = aiCtx.getImageData(0, 0, AI_SIZE, AI_SIZE).data;
+  const run = async t => (await sess.run({ [sess.inputNames[0]]: new ort.Tensor("float32", t, [1, 3, AI_SIZE, AI_SIZE]) }))[sess.outputNames[0]].data;
+  // one inference at a time: live view and review share the session
+  while (aiDetect.busy) await new Promise(r => setTimeout(r, 20));
+  aiDetect.busy = true;
+  try {
+    const boxes = await PillAI.detect(run, px, AI_SIZE, { conf: 0.2, flip: false });
+    return boxes.map(b => [b.x0 / sc, b.y0 / sc, b.x1 / sc, b.y1 / sc, +b.s.toFixed(3)]);
+  } finally { aiDetect.busy = false; }
+}
 async function runAI(token) {
   $("#nAi").textContent = "…"; $("#mAi").disabled = true;
   if (!aiEnabled()) { $("#methodBox").hidden = true; $("#aiNote").textContent = ""; return; }
   $("#methodBox").hidden = false; $("#aiNote").className = "hint"; $("#aiNote").textContent = "AI กำลังนับซ้ำ…";
   try {
-    const sess = await loadAI();
-    const sc = AI_SIZE / Math.max(rev.w, rev.h);
-    const c = document.createElement("canvas"); c.width = c.height = AI_SIZE;
-    const x = c.getContext("2d"); x.fillStyle = "rgb(114,114,114)"; x.fillRect(0, 0, AI_SIZE, AI_SIZE);
-    x.drawImage(rev.src, 0, 0, Math.round(rev.w * sc), Math.round(rev.h * sc));
-    const px = x.getImageData(0, 0, AI_SIZE, AI_SIZE).data;
     const t0 = performance.now();
-    const boxes = await PillAI.detect(async t => (await sess.run({ [sess.inputNames[0]]: new ort.Tensor("float32", t, [1, 3, AI_SIZE, AI_SIZE]) }))[sess.outputNames[0]].data, px, AI_SIZE, { conf: 0.2, flip: false });
+    const boxes = await aiDetect(rev.src, rev.w, rev.h);
     if (token !== rev.ts) return;
-    const ws = boxes.map(b => (b.x1 - b.x0) / sc).sort((a, b) => a - b);
-    rev.aiBoxes = boxes.map(b => [b.x0 / sc, b.y0 / sc, b.x1 / sc, b.y1 / sc, +b.s.toFixed(3)]);
-    rev.ai = { dots: boxes.map(b => ({ x: (b.x0 + b.x1) / 2 / sc, y: (b.y0 + b.y1) / 2 / sc, chk: b.s < 0.45 })), auto: boxes.length, r: (ws[ws.length >> 1] || 16) / 2 };
+    const ws = boxes.map(b => b[2] - b[0]).sort((a, b) => a - b);
+    rev.aiBoxes = boxes;
+    rev.ai = { dots: boxes.map(b => ({ x: (b[0] + b[2]) / 2, y: (b[1] + b[3]) / 2, chk: b[4] < 0.45 })), auto: boxes.length, r: (ws[ws.length >> 1] || 16) / 2 };
     $("#nAi").textContent = boxes.length; $("#mAi").disabled = false;
-    const cN = rev.color.auto, aN = rev.ai.auto, ms = Math.round(performance.now() - t0);
-    if (Math.abs(cN - aN) <= 1) {
-      $("#aiNote").textContent = `สีกับ AI นับใกล้กัน (${cN} / ${aN})`;
-    } else {
-      $("#aiNote").className = "hint aiwarn";
-      $("#aiNote").textContent = `สีนับได้ ${cN} แต่ AI นับได้ ${aN} ไม่ตรงกัน ควรตรวจภาพ`;
-      // colour method clearly lost the tablets (e.g. tinted bag): show AI first
-      if (cN < aN * 0.75 && rev.method === "color" && rev.dots.length === rev.auto) useMethod("ai");
-    }
-    console.log("AI ms", ms);
+    // AI is the main count; colour stays as a second opinion
+    if (rev.method === "color" && rev.dots.length === rev.auto) useMethod("ai");
+    const cN = rev.color.auto, aN = rev.ai.auto;
+    if (Math.abs(cN - aN) <= 1) $("#aiNote").textContent = `AI กับวิธีสีนับใกล้กัน (${aN} / ${cN})`;
+    else $("#aiNote").textContent = `ใช้ผล AI · วิธีสีนับได้ ${cN} กดปุ่ม "สี" เพื่อดูได้`;
+    console.log("AI ms", Math.round(performance.now() - t0));
   } catch (e) {
     if (token !== rev.ts) return;
     $("#aiNote").textContent = "AI ใช้ไม่ได้ตอนนี้ (ต้องต่ออินเทอร์เน็ตครั้งแรก)"; $("#nAi").textContent = "–";
